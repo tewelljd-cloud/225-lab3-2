@@ -1,5 +1,6 @@
 
 
+
 pipeline {
     agent any
 
@@ -29,14 +30,16 @@ pipeline {
             steps {
                 withCredentials([
                     usernamePassword(
-                        credentialsId: "${DOCKER_CREDENTIALS_ID}",
+                        credentialsId: 'tewelljd-dockerhub',
                         usernameVariable: 'DOCKER_USERNAME',
                         passwordVariable: 'DOCKER_PASSWORD'
                     )
                 ]) {
                     sh '''
                         echo "$DOCKER_PASSWORD" | docker login \
-                            -u "$DOCKER_USERNAME" --password-stdin
+                            --username "$DOCKER_USERNAME" \
+                            --password-stdin
+
                         docker push ${DOCKER_IMAGE}:${IMAGE_TAG}
                         docker logout
                     '''
@@ -55,11 +58,12 @@ pipeline {
             }
         }
 
-        stage('Check Deployment') {
+        stage('Check Kubernetes Cluster') {
             steps {
                 sh '''
                     kubectl rollout status deployment/dev-deployment \
                         --timeout=120s
+
                     kubectl get services
                     kubectl get ingress
                 '''
