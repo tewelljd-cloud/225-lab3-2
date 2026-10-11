@@ -1,67 +1,68 @@
 
+
 pipeline {
     agent any
 
     environment {
-        DOCKER_CREDENTIALS_ID = 'roseaw-dockerhub'
+        DOCKER_CREDENTIALS_ID = 'tewelljd-dockerhub'
         DOCKER_IMAGE = 'tewelljd/225-lab3-2'
         IMAGE_TAG = "build-${BUILD_NUMBER}"
-        GITHUB_URL = 'https://github.com/tewelljd-cloud/225-lab3-2.git'
         KUBECONFIG = credentials('tewelljd-fl26')
     }
 
     stages {
         stage('Checkout') {
             steps {
-                checkout([
-                    $class: 'GitSCM',
-                    branches: [[name: '*/main']],
-                    userRemoteConfigs: [[url: "${GITHUB_URL}"]]
-                ])
+                checkout scm
             }
         }
 
         stage('Build Docker Image') {
             steps {
-                script {
-                    docker.build("${DOCKER_IMAGE}:${IMAGE_TAG}")
-                }
+                sh '''
+                    docker build -t ${DOCKER_IMAGE}:${IMAGE_TAG} .
+                '''
             }
         }
 
         stage('Push Docker Image') {
             steps {
-                script {
-                    docker.withRegistry(
-                        'https://index.docker.io/v1/',
-                        "${DOCKER_CREDENTIALS_ID}"
-                    ) {
-                        docker.image(
-                            "${DOCKER_IMAGE}:${IMAGE_TAG}"
-                        ).push()
-                    }
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: "${DOCKER_CREDENTIALS_ID}",
+                        usernameVariable: 'DOCKER_USERNAME',
+                        passwordVariable: 'DOCKER_PASSWORD'
+                    )
+                ]) {
+                    sh '''
+                        echo "$DOCKER_PASSWORD" | docker login \
+                            -u "$DOCKER_USERNAME" --password-stdin
+                        docker push ${DOCKER_IMAGE}:${IMAGE_TAG}
+                        docker logout
+                    '''
                 }
             }
         }
 
-        stage('Deploy to Dev Environment using ClusterIP and Ingress') {
+        stage('Deploy to Kubernetes') {
             steps {
-                script {
-                    sh """
-                        sed -i 's|${DOCKER_IMAGE}:latest|${DOCKER_IMAGE}:${IMAGE_TAG}|' deployment-dev.yaml
-                        kubectl apply -f deployment-dev.yaml
-                    """
-                }
+                sh '''
+                    sed "s|tewelljd/225-lab3-2:latest|${DOCKER_IMAGE}:${IMAGE_TAG}|g" \
+                        deployment-dev.yaml > deployment-build.yaml
+
+                    kubectl apply -f deployment-build.yaml
+                '''
             }
         }
 
-        stage('Check Kubernetes Cluster') {
+        stage('Check Deployment') {
             steps {
-                script {
-                    sh 'kubectl get deployments'
-                    sh 'kubectl get services'
-                    sh 'kubectl get ingress'
-                }
+                sh '''
+                    kubectl rollout status deployment/dev-deployment \
+                        --timeout=120s
+                    kubectl get services
+                    kubectl get ingress
+                '''
             }
         }
     }
@@ -69,23 +70,22 @@ pipeline {
     post {
         success {
             slackSend(
+                channel: '#builds',
                 color: 'good',
-                message: "Build Successful: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
-            )
-        }
-
-        unstable {
-            slackSend(
-                color: 'warning',
-                message: "Build Unstable: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+                message: "SUCCESS: ${JOB_NAME} build #${BUILD_NUMBER}"
             )
         }
 
         failure {
             slackSend(
+                channel: '#builds',
                 color: 'danger',
-                message: "Build Failed: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+                message: "FAILED: ${JOB_NAME} build #${BUILD_NUMBER}. Check Jenkins Console Output."
             )
+        }
+
+        always {
+            echo "Pipeline finished with status: ${currentBuild.currentResult}"
         }
     }
 }
