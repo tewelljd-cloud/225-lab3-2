@@ -1,19 +1,23 @@
+
 pipeline {
-    agent any 
+    agent any
 
     environment {
         DOCKER_CREDENTIALS_ID = 'roseaw-dockerhub'
-        DOCKER_IMAGE = 'cithit/roseaw'                                                 // <------change this
+        DOCKER_IMAGE = 'tewelljd/225-lab3-2'
         IMAGE_TAG = "build-${BUILD_NUMBER}"
-        GITHUB_URL = 'https://github.com/miamioh-cit/225-lab3-2.git'                   // <------change this
-        KUBECONFIG = credentials('roseaw-225')                                             // <------change this
+        GITHUB_URL = 'https://github.com/tewelljd-cloud/225-lab3-2.git'
+        KUBECONFIG = credentials('tewelljd')
     }
 
     stages {
         stage('Checkout') {
             steps {
-                checkout([$class: 'GitSCM', branches: [[name: '*/main']],
-                          userRemoteConfigs: [[url: "${GITHUB_URL}"]]])
+                checkout([
+                    $class: 'GitSCM',
+                    branches: [[name: '*/main']],
+                    userRemoteConfigs: [[url: "${GITHUB_URL}"]]
+                ])
             }
         }
 
@@ -28,42 +32,60 @@ pipeline {
         stage('Push Docker Image') {
             steps {
                 script {
-                    docker.withRegistry('https://index.docker.io/v1/', "${DOCKER_CREDENTIALS_ID}") {
-                        docker.image("${DOCKER_IMAGE}:${IMAGE_TAG}").push()
+                    docker.withRegistry(
+                        'https://index.docker.io/v1/',
+                        "${DOCKER_CREDENTIALS_ID}"
+                    ) {
+                        docker.image(
+                            "${DOCKER_IMAGE}:${IMAGE_TAG}"
+                        ).push()
                     }
                 }
             }
         }
 
-        stage('Deploy to Dev Environment using NodePort') {
+        stage('Deploy to Dev Environment using ClusterIP and Ingress') {
             steps {
                 script {
-                    // Set up Kubernetes configuration using the specified KUBECONFIG
-                    def kubeConfig = readFile(KUBECONFIG)
-                    // Update deployment-dev.yaml to use the new image tag
-                    sh "sed -i 's|${DOCKER_IMAGE}:latest|${DOCKER_IMAGE}:${IMAGE_TAG}|' deployment-dev.yaml"
-                    sh "kubectl apply -f deployment-dev.yaml"
+                    sh """
+                        sed -i 's|${DOCKER_IMAGE}:latest|${DOCKER_IMAGE}:${IMAGE_TAG}|' deployment-dev.yaml
+                        kubectl apply -f deployment-dev.yaml
+                    """
                 }
             }
         }
- 
+
         stage('Check Kubernetes Cluster') {
             steps {
                 script {
-                    sh "kubectl get all"
+                    sh 'kubectl get deployments'
+                    sh 'kubectl get services'
+                    sh 'kubectl get ingress'
                 }
             }
         }
     }
+
     post {
         success {
-            slackSend([color: "good", message: "Build Completed: ${env.JOB_NAME} ${env.BUILD_NUMBER}"])
+            slackSend(
+                color: 'good',
+                message: "Build Successful: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+            )
         }
+
         unstable {
-            slackSend([color: "warning", message: "Build Completed: ${env.JOB_NAME} ${env.BUILD_NUMBER}"])
+            slackSend(
+                color: 'warning',
+                message: "Build Unstable: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+            )
         }
+
         failure {
-            slackSend([color: "danger", message: "Build Completed: ${env.JOB_NAME} ${env.BUILD_NUMBER}"])
+            slackSend(
+                color: 'danger',
+                message: "Build Failed: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+            )
+        }
     }
-}
 }
