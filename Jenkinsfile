@@ -7,7 +7,7 @@ pipeline {
         DOCKER_IMAGE = 'tewelljd/225-lab3-2'
         IMAGE_TAG = "build-${BUILD_NUMBER}"
         GITHUB_URL = 'https://github.com/tewelljd-cloud/225-lab3-2.git'
-        KUBECONFIG = credentials('tewelljd')
+        KUBECONFIG = credentials('tewelljd-fl26')
     }
 
     stages {
